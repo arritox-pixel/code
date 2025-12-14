@@ -1,4 +1,5 @@
 import argparse
+import exrex
 import hashlib
 
 
@@ -24,138 +25,84 @@ def hash_hex(algoritmo, texto):
     if algoritmo == "SHA512":
         return hashlib.sha512(texto_bytes).hexdigest()
 
-    return None
+    return ""
 
 
-def numero_dos_digitos(numero):
-    if numero < 10:
-        return "0" + str(numero)
-    return str(numero)
-
-
-def letras_minusculas():
-    letras = []
-    for letra in range(ord("a"), ord("z") + 1):
-        letras.append(chr(letra))
-    return letras
+def generar_password_clara():
+    patron = r"[-\?\*][a-z]{2}[0-9]{2}-"
+    password = exrex.getone(patron)
+    return password
 
 
 class Cliente:
     def __init__(self, cl_name, cl_cif, algoritmo):
-        self.CL_NAME = str(cl_name)
-        self.CL_CIF = str(cl_cif)
-        self.algoritmo = str(algoritmo)
-
-        texto_id = self.CL_CIF + "--" + self.CL_NAME
-        self.CL_ID = numero_desde_texto(texto_id, 5000, 6500)
-
-        self.CL_PASS = self.GenerarPass(self.algoritmo)
+        self.CL_ID = numero_desde_texto(cl_name + "@" + cl_cif, 5000, 6500)
+        self.CL_NAME = cl_name
+        self.CL_CIF = cl_cif
+        self.CL_PASS = self.GenerarPass(algoritmo)
 
     def GenerarPass(self, algoritmo):
-        texto_base = self.CL_CIF + "--" + self.CL_NAME + "--" + str(self.CL_ID)
-        valor = numero_desde_texto(texto_base, 0, 999999)
-
-        simbolos = ["-", "?", "*"]
-        posicion_simbolo = valor % 3
-        simbolo = simbolos[posicion_simbolo]
-
-        letras = letras_minusculas()
-
-        posicion_1 = valor % 26
-        posicion_2 = (valor // 26) % 26
-
-        letra_1 = letras[posicion_1]
-        letra_2 = letras[posicion_2]
-
-        numero = valor % 100
-        numero_texto = numero_dos_digitos(numero)
-
-        password_clara = simbolo + letra_1 + letra_2 + numero_texto + "-"
-
+        password_clara = generar_password_clara()
         password_hash = hash_hex(algoritmo, password_clara)
-        return password_hash
+        valor = algoritmo + "$$" + password_hash + "$$" + password_clara
+        return valor
 
     def DescifrarPass(self):
-        simbolos = ["-", "?", "*"]
-        letras = letras_minusculas()
-
-        for simbolo in simbolos:
-            for letra_1 in letras:
-                for letra_2 in letras:
-                    for numero in range(0, 100):
-                        numero_texto = numero_dos_digitos(numero)
-                        password_clara = simbolo + letra_1 + letra_2 + numero_texto + "-"
-
-                        calculado = hash_hex(self.algoritmo, password_clara)
-                        if calculado == self.CL_PASS:
-                            return password_clara
-
-        return None
+        partes = self.CL_PASS.split("$$")
+        if len(partes) >= 3:
+            return partes[2]
+        return ""
 
     def RealizarEnvio(self):
         url_cliente = self.DescifrarPass()
-        if url_cliente is None:
-            print("No se pudo descifrar la password del cliente")
-            return
-
         enlace = "https://www.petrol.com/cliente/" + url_cliente
         print(enlace)
 
     def ImprimirDatos(self):
-        print("CLIENTE")
         print("CL_ID:", self.CL_ID)
         print("CL_NAME:", self.CL_NAME)
         print("CL_CIF:", self.CL_CIF)
         print("CL_PASS:", self.CL_PASS)
-        print("ALGORITMO:", self.algoritmo)
 
 
 class Petrolera:
     def __init__(self, nom_petrolera, dir_petrolera, suministros):
-        self.NOM_PETROLERA = str(nom_petrolera)
-        self.DIR_PETROLERA = str(dir_petrolera)
-        self.SUMINISTROS = int(suministros)
-
-        texto_id = self.NOM_PETROLERA + "--" + self.DIR_PETROLERA
-        self.ID_PETROLERA = numero_desde_texto(texto_id, 1, 50)
-
+        self.ID_PETROLERA = numero_desde_texto(nom_petrolera + "@" + dir_petrolera, 1, 50)
+        self.NOM_PETROLERA = nom_petrolera
+        self.DIR_PETROLERA = dir_petrolera
+        self.SUMINISTROS = suministros
         self.CONTABILIDAD = {}
-        self.fecha_ultima = None
 
     def RealizarContabilidad(self, ruta_fichero):
-        fichero = open(ruta_fichero, "r", encoding="utf-8")
+        fichero = open(ruta_fichero, "r+", encoding="utf-8")
         lineas = fichero.readlines()
         fichero.close()
 
+        clientes_por_cif = {}
+
         for linea in lineas:
             linea_limpia = linea.strip()
-            if linea_limpia == "":
-                continue
 
-            partes = linea_limpia.split("--")
-            if len(partes) != 6:
-                continue
+            if linea_limpia != "":
+                partes = linea_limpia.split("--")
 
-            fecha = partes[0].strip()
-            cl_cif = partes[1].strip()
-            cl_name = partes[2].strip()
-            id_pedido = partes[3].strip()
-            id_petrolera = partes[4].strip()
-            importe_texto = partes[5].strip()
+                if len(partes) == 6:
+                    fecha = partes[0]
+                    cl_cif = partes[1]
+                    cl_name = partes[2]
+                    id_pedido = partes[3]
+                    id_petrolera = partes[4]
+                    importe_texto = partes[5]
 
-            if id_petrolera != str(self.ID_PETROLERA):
-                continue
+                    if str(id_petrolera) == str(self.ID_PETROLERA):
+                        if cl_cif in clientes_por_cif:
+                            cliente = clientes_por_cif[cl_cif]
+                        else:
+                            cliente = Cliente(cl_name, cl_cif, "SHA256")
+                            clientes_por_cif[cl_cif] = cliente
 
-            algoritmo = "SHA256"
-            if self.ID_PETROLERA % 2 != 0:
-                algoritmo = "SHA512"
-
-            cliente = Cliente(cl_name, cl_cif, algoritmo)
-
-            importe = float(importe_texto)
-
-            self.CONTABILIDAD[id_pedido] = [importe, fecha, cliente]
-            self.fecha_ultima = fecha
+                        importe = float(importe_texto)
+                        self.CONTABILIDAD[id_pedido] = [importe, fecha, cliente]
 
     def ObtenerPedidosCliente(self, cl_id):
         encontrado = False
@@ -171,97 +118,108 @@ class Petrolera:
                 print("ID_PEDIDO:", id_pedido, "IMPORTE:", importe, "FECHA:", fecha)
 
         if encontrado is False:
-            print("No hay pedidos para el cliente con CL_ID:", cl_id)
+            print("No hay pedidos para ese CL_ID:", cl_id)
 
-    def ReporteContabilidad(self):
-        total = 0.0
+    def ReporteContabilidad(self, ruta_salida):
+        importe_total = 0.0
+        fecha_ultima = ""
 
         for id_pedido in self.CONTABILIDAD:
             datos = self.CONTABILIDAD[id_pedido]
             importe = datos[0]
-            total = total + importe
+            fecha = datos[1]
 
-        fecha = self.fecha_ultima
-        if fecha is None:
-            fecha = "SIN_FECHA"
+            importe_total = importe_total + importe
 
-        nombre_salida = "reporte_petrolera_" + str(self.ID_PETROLERA) + ".txt"
-        salida = open(nombre_salida, "w+", encoding="utf-8")
+            if fecha_ultima == "":
+                fecha_ultima = fecha
+            else:
+                if fecha > fecha_ultima:
+                    fecha_ultima = fecha
 
-        linea = str(self.ID_PETROLERA) + "@@" + str(total) + "@@" + str(fecha)
-        salida.write(linea)
-        salida.close()
+        if fecha_ultima == "":
+            fecha_ultima = "SIN_FECHA"
 
-        return nombre_salida
+        texto = str(self.ID_PETROLERA) + "@@" + str(importe_total) + "@@" + fecha_ultima + "\n"
+
+        fichero = open(ruta_salida, "w+", encoding="utf-8")
+        fichero.write(texto)
+        fichero.close()
 
     def ImprimirDatos(self):
-        print("PETROLERA")
         print("ID_PETROLERA:", self.ID_PETROLERA)
         print("NOM_PETROLERA:", self.NOM_PETROLERA)
         print("DIR_PETROLERA:", self.DIR_PETROLERA)
         print("SUMINISTROS:", self.SUMINISTROS)
-        print("PEDIDOS EN CONTABILIDAD:", len(self.CONTABILIDAD))
+        print("PEDIDOS_EN_CONTABILIDAD:", len(self.CONTABILIDAD))
 
 
-def escribir_fichero_prueba(ruta, petrolera_1, petrolera_2):
+def crear_fichero_demo(ruta_fichero, id_petrolera_1, id_petrolera_2):
     lineas = []
 
-    lineas.append("2025-04-10--A11111111--Ana--P1001--" + str(petrolera_1.ID_PETROLERA) + "--1200.50")
-    lineas.append("2025-04-11--B22222222--Luis--P1002--" + str(petrolera_1.ID_PETROLERA) + "--300.00")
-    lineas.append("2025-04-12--C33333333--Marta--P1003--" + str(petrolera_1.ID_PETROLERA) + "--75.25")
+    lineas.append("2025-12-01--A11111111--Cliente Uno--P001--" + str(id_petrolera_1) + "--120.50\n")
+    lineas.append("2025-12-02--B22222222--Cliente Dos--P002--" + str(id_petrolera_1) + "--80.00\n")
+    lineas.append("2025-12-03--C33333333--Cliente Tres--P003--" + str(id_petrolera_1) + "--150.75\n")
 
-    lineas.append("2025-05-01--D44444444--Pablo--P2001--" + str(petrolera_2.ID_PETROLERA) + "--500.00")
-    lineas.append("2025-05-02--E55555555--Sara--P2002--" + str(petrolera_2.ID_PETROLERA) + "--999.99")
-    lineas.append("2025-05-03--F66666666--Nerea--P2003--" + str(petrolera_2.ID_PETROLERA) + "--10.00")
+    lineas.append("2025-12-01--D44444444--Cliente Cuatro--P004--" + str(id_petrolera_2) + "--60.00\n")
+    lineas.append("2025-12-02--E55555555--Cliente Cinco--P005--" + str(id_petrolera_2) + "--99.99\n")
+    lineas.append("2025-12-03--F66666666--Cliente Seis--P006--" + str(id_petrolera_2) + "--200.10\n")
 
-    fichero = open(ruta, "w+", encoding="utf-8")
+    fichero = open(ruta_fichero, "w+", encoding="utf-8")
     for linea in lineas:
-        fichero.write(linea + "\n")
+        fichero.write(linea)
     fichero.close()
 
 
-def obtener_un_cliente_de_petrolera(petrolera):
-    for id_pedido in petrolera.CONTABILIDAD:
-        datos = petrolera.CONTABILIDAD[id_pedido]
-        cliente = datos[2]
-        return cliente
-    return None
-
-
-def main():
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--fichero", required=True)
+    parser.add_argument("--fichero_contabilidad", type=str, default="contabilidad_demo.txt")
     args = parser.parse_args()
 
-    petrolera_1 = Petrolera("Petrol Norte", "Calle 1", 100)
-    petrolera_2 = Petrolera("Petrol Sur", "Calle 2", 200)
+    petrolera_1 = Petrolera("Petrolera Norte", "Calle Norte 1", 100)
+    petrolera_2 = Petrolera("Petrolera Sur", "Avenida Sur 9", 200)
 
-    escribir_fichero_prueba(args.fichero, petrolera_1, petrolera_2)
+    crear_fichero_demo(args.fichero_contabilidad, petrolera_1.ID_PETROLERA, petrolera_2.ID_PETROLERA)
 
-    petrolera_1.RealizarContabilidad(args.fichero)
-    petrolera_2.RealizarContabilidad(args.fichero)
+    petrolera_1.RealizarContabilidad(args.fichero_contabilidad)
+    petrolera_2.RealizarContabilidad(args.fichero_contabilidad)
 
+    print("=== PETROLERA 1 ===")
     petrolera_1.ImprimirDatos()
+
+    print("")
+    print("=== PETROLERA 2 ===")
     petrolera_2.ImprimirDatos()
 
-    cliente_1 = obtener_un_cliente_de_petrolera(petrolera_1)
-    if cliente_1 is not None:
-        cliente_1.ImprimirDatos()
-        cliente_1.RealizarEnvio()
-        petrolera_1.ObtenerPedidosCliente(cliente_1.CL_ID)
+    print("")
+    print("=== CLIENTES Y ENLACES (PETROLERA 1) ===")
+    for id_pedido in petrolera_1.CONTABILIDAD:
+        datos = petrolera_1.CONTABILIDAD[id_pedido]
+        cliente = datos[2]
+        cliente.ImprimirDatos()
+        cliente.RealizarEnvio()
+        print("")
 
-    cliente_2 = obtener_un_cliente_de_petrolera(petrolera_2)
-    if cliente_2 is not None:
-        cliente_2.ImprimirDatos()
-        cliente_2.RealizarEnvio()
-        petrolera_2.ObtenerPedidosCliente(cliente_2.CL_ID)
+    print("=== CLIENTES Y ENLACES (PETROLERA 2) ===")
+    for id_pedido in petrolera_2.CONTABILIDAD:
+        datos = petrolera_2.CONTABILIDAD[id_pedido]
+        cliente = datos[2]
+        cliente.ImprimirDatos()
+        cliente.RealizarEnvio()
+        print("")
 
-    salida_1 = petrolera_1.ReporteContabilidad()
-    salida_2 = petrolera_2.ReporteContabilidad()
+    print("=== OBTENER PEDIDOS POR CLIENTE (EJEMPLO) ===")
+    ejemplo_cliente = None
+    for id_pedido in petrolera_1.CONTABILIDAD:
+        datos = petrolera_1.CONTABILIDAD[id_pedido]
+        ejemplo_cliente = datos[2]
+        break
 
-    print("Reporte creado:", salida_1)
-    print("Reporte creado:", salida_2)
+    if ejemplo_cliente is not None:
+        petrolera_1.ObtenerPedidosCliente(ejemplo_cliente.CL_ID)
 
+    petrolera_1.ReporteContabilidad("reporte_petrolera_1.txt")
+    petrolera_2.ReporteContabilidad("reporte_petrolera_2.txt")
 
-if __name__ == "__main__":
-    main()
+    print("")
+    print("Se han generado los reportes: reporte_petrolera_1.txt y reporte_petrolera_2.txt")
