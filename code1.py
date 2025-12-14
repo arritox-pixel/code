@@ -35,10 +35,8 @@ def numero_dos_digitos(numero):
 
 def letras_minusculas():
     letras = []
-    letra = ord("a")
-    while letra <= ord("z"):
+    for letra in range(ord("a"), ord("z") + 1):
         letras.append(chr(letra))
-        letra = letra + 1
     return letras
 
 
@@ -81,32 +79,16 @@ class Cliente:
         simbolos = ["-", "?", "*"]
         letras = letras_minusculas()
 
-        simbolo_pos = 0
-        while simbolo_pos < len(simbolos):
-            simbolo = simbolos[simbolo_pos]
-
-            i = 0
-            while i < len(letras):
-                j = 0
-                while j < len(letras):
-                    letra_1 = letras[i]
-                    letra_2 = letras[j]
-
-                    numero = 0
-                    while numero <= 99:
+        for simbolo in simbolos:
+            for letra_1 in letras:
+                for letra_2 in letras:
+                    for numero in range(0, 100):
                         numero_texto = numero_dos_digitos(numero)
                         password_clara = simbolo + letra_1 + letra_2 + numero_texto + "-"
 
                         calculado = hash_hex(self.algoritmo, password_clara)
                         if calculado == self.CL_PASS:
                             return password_clara
-
-                        numero = numero + 1
-
-                    j = j + 1
-                i = i + 1
-
-            simbolo_pos = simbolo_pos + 1
 
         return None
 
