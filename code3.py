@@ -1,227 +1,321 @@
+import argparse
 from cryptography.hazmat.primitives import hashes
 
 
-def obtener_hash_hex(algoritmo, texto):
-    if algoritmo == "SHA512":
-        generador = hashes.Hash(hashes.SHA512())
-    elif algoritmo == "SHA256":
-        generador = hashes.Hash(hashes.SHA256())
-    elif algoritmo == "MD5":
-        generador = hashes.Hash(hashes.MD5())
+def int_a_texto(numero):
+    n = int(numero)
+
+    if n == 0:
+        return "0"
+
+    if n < 0:
+        n = -n
+        signo = "-"
     else:
-        return None
+        signo = ""
 
-    generador.update(str(texto).encode("utf-8"))
-    return generador.finalize().hex()
+    digitos = []
+    while n > 0:
+        resto = n % 10
+        digitos.append(chr(ord("0") + resto))
+        n = n // 10
 
+    texto = ""
+    pos = len(digitos) - 1
+    while pos >= 0:
+        texto = texto + digitos[pos]
+        pos = pos - 1
 
-class Country:
-    def __init__(self, name):
-        self.c_name = str(name).upper()
-        self.alg = self.GetAlg()
-
-    def SetAlgs(self):
-        return {
-            "SHA512": ["ES", "CHN", "SIN"],
-            "SHA256": ["BEL", "EGY", "JAP"],
-            "MD5": ["GER", "FR", "IT"]
-        }
-
-    def GetAlg(self):
-        algs = self.SetAlgs()
-        for algoritmo in algs:
-            paises = algs[algoritmo]
-            for pais in paises:
-                if pais == self.c_name:
-                    return algoritmo
-        return None
+    return signo + texto
 
 
-class Ship:
-    def __init__(self, number, country_name):
-        self.s_number = int(number)
-        self.country_name = str(country_name).upper()
-        self.s_id = self.GenID()
+def calcular_hex(algoritmo, texto):
+    if algoritmo == "SHA256":
+        h = hashes.Hash(hashes.SHA256())
+    else:
+        if algoritmo == "SHA512":
+            h = hashes.Hash(hashes.SHA512())
+        else:
+            if algoritmo == "MD5":
+                h = hashes.Hash(hashes.MD5())
+            else:
+                return None
 
-    def GenID(self):
-        pais = Country(self.country_name)
-        if pais.alg is None:
-            raise ValueError("country_name no soportado")
+    h.update(texto.encode("utf-8"))
+    return h.finalize().hex()
 
-        numero_texto = str(self.s_number).zfill(2)
-        texto = numero_texto + "*" + self.country_name
-        resultado = obtener_hash_hex(pais.alg, texto)
 
-        if resultado is None:
+def numero_por_texto(texto, minimo, maximo):
+    completo = calcular_hex("SHA256", texto)
+    parte = completo[0:8]
+    numero = int(parte, 16)
+
+    rango = maximo - minimo + 1
+    numero = numero % rango
+    numero = numero + minimo
+    return numero
+
+
+def dos_digitos(numero):
+    n = int(numero)
+    if n < 10:
+        return "0" + int_a_texto(n)
+    return int_a_texto(n)
+
+
+def lista_letras_minusculas():
+    letras = []
+    codigo = ord("a")
+    while codigo <= ord("z"):
+        letras.append(chr(codigo))
+        codigo = codigo + 1
+    return letras
+
+
+class Cliente:
+    def __init__(self, nombre_cliente, cif_cliente, algoritmo):
+        self.CL_NAME = nombre_cliente
+        self.CL_CIF = cif_cliente
+        self.algoritmo = algoritmo
+
+        texto_para_id = self.CL_CIF + "--" + self.CL_NAME
+        self.CL_ID = numero_por_texto(texto_para_id, 5000, 6500)
+
+        self.CL_PASS = self.GenerarPass(self.algoritmo)
+
+    def GenerarPass(self, algoritmo):
+        texto_base = self.CL_CIF + "--" + self.CL_NAME + "--" + int_a_texto(self.CL_ID)
+        semilla = numero_por_texto(texto_base, 0, 999999)
+
+        simbolos = ["-", "?", "*"]
+        pos_simbolo = semilla % 3
+        simbolo = simbolos[pos_simbolo]
+
+        letras = lista_letras_minusculas()
+
+        pos_1 = semilla % 26
+        pos_2 = (semilla // 26) % 26
+
+        letra_1 = letras[pos_1]
+        letra_2 = letras[pos_2]
+
+        num = semilla % 100
+        num_texto = dos_digitos(num)
+
+        clave_clara = simbolo + letra_1 + letra_2 + num_texto + "-"
+
+        clave_hash = calcular_hex(algoritmo, clave_clara)
+        if clave_hash is None:
             raise ValueError("Algoritmo no soportado")
 
-        return resultado
+        return clave_hash
 
-    def __str__(self):
-        id_claro = str(self.s_number).zfill(2) + "*" + self.country_name
-        return "Ship { id_claro: " + id_claro + ", country: " + self.country_name + ", number: " + str(self.s_number) + " }"
+    def DescifrarPass(self):
+        simbolos = ["-", "?", "*"]
+        letras = lista_letras_minusculas()
 
+        pos_simbolo = 0
+        while pos_simbolo < len(simbolos):
+            simbolo = simbolos[pos_simbolo]
 
-class Port:
-    def __init__(self, name, country):
-        self.p_name = str(name)
-        self.country = country
-        self.ships = {"ENTRADA": {}, "SALIDA": {}}
+            i = 0
+            while i < len(letras):
+                j = 0
+                while j < len(letras):
+                    letra_1 = letras[i]
+                    letra_2 = letras[j]
 
-        if self.country is None or self.country.alg is None:
-            raise ValueError("Country inválido o sin algoritmo")
+                    numero = 0
+                    while numero <= 99:
+                        num_texto = dos_digitos(numero)
+                        candidata = simbolo + letra_1 + letra_2 + num_texto + "-"
 
-        self.p_id = obtener_hash_hex(self.country.alg, self.country.c_name)
+                        calculada = calcular_hex(self.algoritmo, candidata)
+                        if calculada == self.CL_PASS:
+                            return candidata
 
-    def DecodeShipID(self, s_id):
-        if s_id is None:
-            return None
+                        numero = numero + 1
 
-        ship_hash = str(s_id).strip().lower()
-        diccionario = self.country.SetAlgs()
+                    j = j + 1
+                i = i + 1
 
-        for algoritmo in diccionario:
-            paises = diccionario[algoritmo]
-            for pais in paises:
-                pais_mayus = str(pais).upper()
-
-                numero = 0
-                while numero <= 99:
-                    id_claro = str(numero).zfill(2) + "*" + pais_mayus
-                    calculado = obtener_hash_hex(algoritmo, id_claro)
-
-                    if calculado == ship_hash:
-                        return id_claro
-
-                    numero += 1
+            pos_simbolo = pos_simbolo + 1
 
         return None
 
-    def _crear_ship_desde_id_claro(self, id_claro):
-        partes = str(id_claro).split("*")
-        if len(partes) != 2:
-            return None
+    def RealizarEnvio(self):
+        url_cliente = self.DescifrarPass()
+        if url_cliente is None:
+            print("No se pudo descifrar la password del cliente")
+            return
 
-        numero_texto = partes[0]
-        pais = partes[1]
+        enlace = "https://www.petrol.com/cliente/" + url_cliente
+        print(enlace)
 
-        if len(numero_texto) != 2:
-            return None
-        if not numero_texto.isdigit():
-            return None
+    def ImprimirDatos(self):
+        print("CLIENTE")
+        print("CL_ID:", self.CL_ID)
+        print("CL_NAME:", self.CL_NAME)
+        print("CL_CIF:", self.CL_CIF)
+        print("CL_PASS:", self.CL_PASS)
+        print("ALGORITMO:", self.algoritmo)
 
-        return Ship(int(numero_texto), pais)
 
-    def SetShips(self, ruta_fichero_registro):
-        fichero = open(ruta_fichero_registro, "r", encoding="utf-8")
-        lineas = fichero.readlines()
-        fichero.close()
+class Petrolera:
+    def __init__(self, nombre_petrolera, direccion_petrolera, suministros):
+        self.NOM_PETROLERA = nombre_petrolera
+        self.DIR_PETROLERA = direccion_petrolera
+        self.SUMINISTROS = int(suministros)
+
+        texto_id = self.NOM_PETROLERA + "--" + self.DIR_PETROLERA
+        self.ID_PETROLERA = numero_por_texto(texto_id, 1, 50)
+
+        self.CONTABILIDAD = {}
+        self.fecha_ultima = None
+
+    def RealizarContabilidad(self, ruta_fichero):
+        archivo = open(ruta_fichero, "r", encoding="utf-8")
+        lineas = archivo.readlines()
+        archivo.close()
 
         for linea in lineas:
             linea_limpia = linea.strip()
             if linea_limpia == "":
                 continue
 
-            partes = linea_limpia.split("//")
-            if len(partes) != 4:
+            partes = linea_limpia.split("--")
+            if len(partes) != 6:
                 continue
 
             fecha = partes[0].strip()
-            registro = partes[1].strip().upper()
-            puerto_id = partes[2].strip().lower()
-            ship_id = partes[3].strip().lower()
+            cif_cliente = partes[1].strip()
+            nombre_cliente = partes[2].strip()
+            id_pedido = partes[3].strip()
+            id_petrolera = partes[4].strip()
+            importe_texto = partes[5].strip()
 
-            if registro != "ENTRADA" and registro != "SALIDA":
+            if id_petrolera != int_a_texto(self.ID_PETROLERA):
                 continue
 
-            if puerto_id != str(self.p_id).lower():
-                continue
+            algoritmo = "SHA256"
+            if self.ID_PETROLERA % 2 != 0:
+                algoritmo = "SHA512"
 
-            id_claro = self.DecodeShipID(ship_id)
-            if id_claro is None:
-                continue
+            cliente = Cliente(nombre_cliente, cif_cliente, algoritmo)
+            importe = float(importe_texto)
 
-            barco = self._crear_ship_desde_id_claro(id_claro)
-            if barco is None:
-                continue
+            self.CONTABILIDAD[id_pedido] = [importe, fecha, cliente]
+            self.fecha_ultima = fecha
 
-            if fecha not in self.ships[registro]:
-                self.ships[registro][fecha] = []
+    def ObtenerPedidosCliente(self, cl_id):
+        encontrado = False
 
-            self.ships[registro][fecha].append(barco)
+        for pedido in self.CONTABILIDAD:
+            datos = self.CONTABILIDAD[pedido]
+            importe = datos[0]
+            fecha = datos[1]
+            cliente = datos[2]
 
+            if cliente.CL_ID == cl_id:
+                encontrado = True
+                print("ID_PEDIDO:", pedido, "IMPORTE:", importe, "FECHA:", fecha)
 
-class Report:
-    def __init__(self, port, file):
-        self.port = port
-        self.file = file
+        if encontrado is False:
+            print("No hay pedidos para el cliente con CL_ID:", cl_id)
 
-    def GetReport(self, tipo=None):
-        self.port.SetShips(self.file)
+    def ReporteContabilidad(self):
+        total = 0.0
 
-        tipo_solicitado = None
-        if tipo is not None:
-            tipo_solicitado = str(tipo).strip().upper()
-            if tipo_solicitado != "ENTRADA" and tipo_solicitado != "SALIDA":
-                raise ValueError("tipo debe ser ENTRADA, SALIDA o None")
+        for pedido in self.CONTABILIDAD:
+            datos = self.CONTABILIDAD[pedido]
+            importe = datos[0]
+            total = total + importe
 
-        nombre_tipo = "completo"
-        if tipo_solicitado == "ENTRADA":
-            nombre_tipo = "entrada"
-        if tipo_solicitado == "SALIDA":
-            nombre_tipo = "salida"
+        fecha = self.fecha_ultima
+        if fecha is None:
+            fecha = "SIN_FECHA"
 
-        nombre_puerto = self.port.p_name.replace(" ", "_")
-        nombre_salida = "reporte_" + nombre_puerto + "_" + nombre_tipo + ".txt"
+        nombre_archivo = "reporte_petrolera_" + int_a_texto(self.ID_PETROLERA) + ".txt"
+        salida = open(nombre_archivo, "w+", encoding="utf-8")
 
-        salida = open(nombre_salida, "w+", encoding="utf-8")
-
-        salida.write("REPORTE DE PUERTO\n")
-        salida.write("Puerto: " + self.port.p_name + "\n")
-        salida.write("Pais: " + self.port.country.c_name + "\n")
-        salida.write("Archivo registros: " + str(self.file) + "\n")
-        salida.write("\n")
-
-        tipos = []
-        if tipo_solicitado is None:
-            tipos.append("ENTRADA")
-            tipos.append("SALIDA")
-        else:
-            tipos.append(tipo_solicitado)
-
-        for tipo_registro in tipos:
-            salida.write("=== " + tipo_registro + " ===\n")
-
-            fechas = list(self.port.ships[tipo_registro].keys())
-            fechas.sort()
-
-            if len(fechas) == 0:
-                salida.write("Sin registros.\n\n")
-                continue
-
-            for fecha in fechas:
-                salida.write(fecha + ":\n")
-                barcos = self.port.ships[tipo_registro][fecha]
-                for barco in barcos:
-                    salida.write("  - " + str(barco) + "\n")
-                salida.write("\n")
-
+        texto_total = format(total, "f")
+        linea = int_a_texto(self.ID_PETROLERA) + "@@" + texto_total + "@@" + fecha
+        salida.write(linea)
         salida.close()
-        return nombre_salida
+
+        return nombre_archivo
+
+    def ImprimirDatos(self):
+        print("PETROLERA")
+        print("ID_PETROLERA:", self.ID_PETROLERA)
+        print("NOM_PETROLERA:", self.NOM_PETROLERA)
+        print("DIR_PETROLERA:", self.DIR_PETROLERA)
+        print("SUMINISTROS:", self.SUMINISTROS)
+        print("PEDIDOS EN CONTABILIDAD:", len(self.CONTABILIDAD))
+
+
+def crear_fichero_prueba(ruta, petrolera_1, petrolera_2):
+    lineas = []
+
+    id_1 = int_a_texto(petrolera_1.ID_PETROLERA)
+    id_2 = int_a_texto(petrolera_2.ID_PETROLERA)
+
+    lineas.append("2025-04-10--A11111111--Ana--P1001--" + id_1 + "--1200.50")
+    lineas.append("2025-04-11--B22222222--Luis--P1002--" + id_1 + "--300.00")
+    lineas.append("2025-04-12--C33333333--Marta--P1003--" + id_1 + "--75.25")
+
+    lineas.append("2025-05-01--D44444444--Pablo--P2001--" + id_2 + "--500.00")
+    lineas.append("2025-05-02--E55555555--Sara--P2002--" + id_2 + "--999.99")
+    lineas.append("2025-05-03--F66666666--Nerea--P2003--" + id_2 + "--10.00")
+
+    archivo = open(ruta, "w+", encoding="utf-8")
+    for linea in lineas:
+        archivo.write(linea + "\n")
+    archivo.close()
+
+
+def elegir_cliente(petrolera):
+    for pedido in petrolera.CONTABILIDAD:
+        datos = petrolera.CONTABILIDAD[pedido]
+        cliente = datos[2]
+        return cliente
+    return None
 
 
 def main():
-    ruta_fichero = "ShipsRegisters.log"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--fichero", required=True)
+    args = parser.parse_args()
 
-    pais_puerto = Country("ES")
-    puerto = Port("Barcelona", pais_puerto)
+    petrolera_a = Petrolera("Petrol Norte", "Calle 1", 100)
+    petrolera_b = Petrolera("Petrol Sur", "Calle 2", 200)
 
-    reporte = Report(puerto, ruta_fichero)
+    crear_fichero_prueba(args.fichero, petrolera_a, petrolera_b)
 
-    salida = reporte.GetReport()
-    print("Reporte generado:", salida)
+    petrolera_a.RealizarContabilidad(args.fichero)
+    petrolera_b.RealizarContabilidad(args.fichero)
+
+    petrolera_a.ImprimirDatos()
+    petrolera_b.ImprimirDatos()
+
+    cliente_a = elegir_cliente(petrolera_a)
+    if cliente_a is not None:
+        cliente_a.ImprimirDatos()
+        cliente_a.RealizarEnvio()
+        petrolera_a.ObtenerPedidosCliente(cliente_a.CL_ID)
+
+    cliente_b = elegir_cliente(petrolera_b)
+    if cliente_b is not None:
+        cliente_b.ImprimirDatos()
+        cliente_b.RealizarEnvio()
+        petrolera_b.ObtenerPedidosCliente(cliente_b.CL_ID)
+
+    reporte_a = petrolera_a.ReporteContabilidad()
+    reporte_b = petrolera_b.ReporteContabilidad()
+
+    print("Reporte creado:", reporte_a)
+    print("Reporte creado:", reporte_b)
 
 
 if __name__ == "__main__":
     main()
-
